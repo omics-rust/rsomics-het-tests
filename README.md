@@ -41,10 +41,23 @@ cat combined.tsv | rsomics-het-tests --test white --data - --json
 
 Output is one line `lm<TAB>lm_pvalue<TAB>fvalue<TAB>f_pvalue`.
 
-An exactly collinear auxiliary design (singular `XᵀX`) fails loud. statsmodels'
-pseudoinverse instead silently reduces such a design to lower rank; this crate
-does not replicate that — a rank-deficient design is reported as an error rather
-than fit at reduced rank.
+A *rank-deficient* auxiliary design is handled as statsmodels does: the
+degrees of freedom follow the numerical rank of the design (`df_model = rank − 1`,
+`df_resid = nobs − rank`), where the rank counts singular values above
+`numpy.linalg.matrix_rank`'s `σ_max · ncols · eps` tolerance. White's auxiliary
+design is routinely rank-deficient — a constant column makes `const·xj = xj`
+duplicate the originals, and a collinear input column (say `0.3·x`) adds a
+near-zero singular value that never surfaces as an exact-zero pivot.
+
+An *exactly* singular `XᵀX` (integer/dummy collinearity that pivots to a hard
+zero) still fails loud rather than being fit at reduced rank through a
+pseudoinverse.
+
+Degenerate residuals — constant, NaN, or overflowing to `inf` when squared —
+drive the centered total sum of squares to zero, so R² and the LM statistic are
+non-finite. The tool terminates with a defined `NaN` tuple rather than looping
+in the χ² survival function; statsmodels reports `(-inf, 1.0, …)` for the
+constant case, an accepted divergence that never ships a wrong finite value.
 
 ## Origin
 

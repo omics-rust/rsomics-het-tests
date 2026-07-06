@@ -16,14 +16,23 @@ const BIGINV: f64 = 2.220_446_049_250_313e-16;
 /// `scipy.stats.chi2.sf`.
 #[must_use]
 pub fn chi2_sf(x: f64, df: f64) -> f64 {
+    if x.is_nan() || !df.is_finite() {
+        return f64::NAN;
+    }
     if x <= 0.0 {
         return 1.0;
+    }
+    if x.is_infinite() {
+        return 0.0;
     }
     igamc(0.5 * df, 0.5 * x)
 }
 
 /// Regularized lower incomplete gamma P(a, x), Cephes power-series branch.
 fn igam(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a.is_nan() {
+        return f64::NAN;
+    }
     if x <= 0.0 || a <= 0.0 {
         return 0.0;
     }
@@ -53,8 +62,14 @@ fn igam(a: f64, x: f64) -> f64 {
 /// Regularized upper incomplete gamma Q(a, x), Cephes continued-fraction branch.
 #[must_use]
 pub fn igamc(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a.is_nan() {
+        return f64::NAN;
+    }
     if x <= 0.0 || a <= 0.0 {
         return 1.0;
+    }
+    if x.is_infinite() {
+        return 0.0;
     }
     if x < 1.0 || x < a {
         return 1.0 - igam(a, x);
@@ -147,5 +162,16 @@ mod tests {
     fn nonpositive_statistic_is_one() {
         assert_eq!(chi2_sf(0.0, 3.0), 1.0);
         assert_eq!(chi2_sf(-1.0, 3.0), 1.0);
+    }
+
+    #[test]
+    fn nonfinite_statistic_terminates() {
+        // A NaN statistic once spun the igamc continued fraction forever.
+        assert!(chi2_sf(f64::NAN, 3.0).is_nan());
+        assert_eq!(chi2_sf(f64::INFINITY, 3.0), 0.0);
+        assert_eq!(chi2_sf(f64::NEG_INFINITY, 3.0), 1.0);
+        assert!(igamc(2.0, f64::NAN).is_nan());
+        assert!(igamc(f64::NAN, 2.0).is_nan());
+        assert_eq!(igamc(2.0, f64::INFINITY), 0.0);
     }
 }

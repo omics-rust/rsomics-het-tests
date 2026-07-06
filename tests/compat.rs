@@ -12,6 +12,7 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 fn bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_rsomics-het-tests"))
@@ -191,6 +192,102 @@ fn singular_design_fails_loud() {
         !out.status.success(),
         "exactly collinear exog must fail loud"
     );
+}
+
+/// Run the binary with a wall-clock deadline; a regression of the chi2_sf /
+/// igamc non-finite hang would otherwise block the test forever.
+fn run_bounded(args: &[&str], secs: u64) -> (bool, String) {
+    let mut child = Command::new(bin())
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn binary");
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            let out = child.wait_with_output().expect("collect output");
+            return (
+                status.success(),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+            );
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("binary hung on {args:?} (> {secs}s)");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn degenerate_residuals_terminate_defined() {
+    // A constant (or NaN/overflow) residual drives centered_tss to 0, so R² and
+    // the LM statistic are non-finite. statsmodels reports a defined degenerate
+    // tuple; we must terminate with a defined (NaN) tuple rather than spin in
+    // chi2_sf's continued fraction. NaN here is an accepted divergence from
+    // statsmodels' -inf/1.0/-4.0/1.0 — it never ships a wrong finite value.
+    let dir = tempfile::tempdir().unwrap();
+
+    let cases = [
+        (
+            "const",
+            "2\t1\t1\n2\t1\t2\n2\t1\t3\n2\t1\t4\n2\t1\t5\n2\t1\t6\n",
+        ),
+        (
+            "alternating",
+            "1\t1\t1\n-1\t1\t2\n1\t1\t3\n-1\t1\t4\n1\t1\t5\n-1\t1\t6\n",
+        ),
+        (
+            "nan",
+            "1\t1\t1\n2\t1\t2\nnan\t1\t3\n4\t1\t4\n5\t1\t5\n6\t1\t6\n",
+        ),
+        (
+            "overflow",
+            "1\t1\t1\n2\t1\t2\n1e300\t1\t3\n4\t1\t4\n5\t1\t5\n6\t1\t6\n",
+        ),
+    ];
+    for (label, body) in cases {
+        let path = dir.path().join(format!("{label}.tsv"));
+        std::fs::write(&path, body).unwrap();
+        for test in ["breuschpagan", "white"] {
+            let (ok, stdout) = run_bounded(&["--test", test, "--data", path.to_str().unwrap()], 20);
+            assert!(ok, "{test} {label}: should exit success, got {stdout:?}");
+            let fields: Vec<f64> = stdout
+                .trim()
+                .split('\t')
+                .map(|s| s.parse().unwrap())
+                .collect();
+            assert_eq!(
+                fields.len(),
+                4,
+                "{test} {label}: want 4 fields, got {stdout:?}"
+            );
+            for f in fields {
+                assert!(f.is_nan(), "{test} {label}: want NaN tuple, got {f}");
+            }
+        }
+    }
+}
+
+#[test]
+fn constant_residual_golden_terminates() {
+    let path = golden_dir().join("const_resid.tsv");
+    for test in ["breuschpagan", "white"] {
+        let (ok, stdout) = run_bounded(&["--test", test, "--data", path.to_str().unwrap()], 20);
+        assert!(ok, "{test}: const_resid golden should exit success");
+        let fields: Vec<f64> = stdout
+            .trim()
+            .split('\t')
+            .map(|s| s.parse().unwrap())
+            .collect();
+        assert_eq!(fields.len(), 4);
+        assert!(
+            fields.iter().all(|f| f.is_nan()),
+            "want NaN tuple, got {stdout:?}"
+        );
+    }
 }
 
 #[test]

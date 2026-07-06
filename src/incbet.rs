@@ -30,8 +30,14 @@ fn beta(a: f64, b: f64) -> f64 {
 /// freedom — Cephes `fdtrc`, the driver behind `scipy.stats.f.sf`.
 #[must_use]
 pub fn f_sf(dfn: f64, dfd: f64, x: f64) -> f64 {
+    if x.is_nan() || !dfn.is_finite() || !dfd.is_finite() {
+        return f64::NAN;
+    }
     if x <= 0.0 {
         return 1.0;
+    }
+    if x.is_infinite() {
+        return 0.0;
     }
     let w = dfd / (dfd + dfn * x);
     incbet(0.5 * dfd, 0.5 * dfn, w)
@@ -319,5 +325,12 @@ mod tests {
             let r = rel(f_sf(dfn, dfd, x), want);
             assert!(r <= 1e-12, "f_sf({dfn},{dfd},{x}) rel {r:e}");
         }
+    }
+
+    #[test]
+    fn f_sf_nonfinite_terminates() {
+        assert!(f_sf(2.0, 18.0, f64::NAN).is_nan());
+        assert_eq!(f_sf(2.0, 18.0, f64::INFINITY), 0.0);
+        assert_eq!(f_sf(2.0, 18.0, f64::NEG_INFINITY), 1.0);
     }
 }

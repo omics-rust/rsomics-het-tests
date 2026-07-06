@@ -1,6 +1,6 @@
 [package]
 name = "rsomics-het-tests"
-version = "0.1.0"
+version = "0.1.1"
 description = "Breusch-Pagan (Koenker) and White Lagrange-multiplier tests for heteroscedasticity on OLS residuals — value-exact statsmodels het_breuschpagan / het_white equivalent"
 edition = "2024"
 rust-version = "1.91"
